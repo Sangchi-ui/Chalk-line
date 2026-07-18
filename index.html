@@ -1,0 +1,636 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Chalkline — Prompt to Proof</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Kalam:wght@400;700&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<style>
+  :root{
+    --board-900:#101F19;
+    --board-800:#16261F;
+    --board-700:#1D2E26;
+    --board-600:#28382F;
+    --line:#3A4A40;
+    --chalk-white:#F2EFE4;
+    --chalk-white-dim:#C9C6BA;
+    --chalk-yellow:#E7C948;
+    --chalk-blue:#7FB4DE;
+    --chalk-pink:#D98C8C;
+    --font-display:'Kalam', cursive;
+    --font-body:'Inter', sans-serif;
+    --font-mono:'IBM Plex Mono', monospace;
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;height:100%;}
+  body{
+    background:
+      radial-gradient(ellipse at 20% 0%, rgba(255,255,255,0.03), transparent 50%),
+      radial-gradient(ellipse at 80% 100%, rgba(255,255,255,0.02), transparent 50%),
+      var(--board-900);
+    color:var(--chalk-white);
+    font-family:var(--font-body);
+    overflow:hidden;
+    height:100vh;
+  }
+  /* chalk dust texture overlay */
+  .dust-overlay{
+    position:fixed; inset:0; pointer-events:none; z-index:1;
+    opacity:0.05; mix-blend-mode:screen;
+    background-image:
+      radial-gradient(1px 1px at 10% 20%, white, transparent),
+      radial-gradient(1px 1px at 30% 60%, white, transparent),
+      radial-gradient(1.5px 1.5px at 50% 15%, white, transparent),
+      radial-gradient(1px 1px at 70% 80%, white, transparent),
+      radial-gradient(1px 1px at 90% 40%, white, transparent),
+      radial-gradient(1.5px 1.5px at 85% 90%, white, transparent),
+      radial-gradient(1px 1px at 15% 90%, white, transparent),
+      radial-gradient(1px 1px at 60% 45%, white, transparent);
+    background-size:600px 600px;
+  }
+
+  .app{ position:relative; z-index:2; width:100%; margin:0; padding:20px 28px 20px; height:100vh; display:flex; flex-direction:column; box-sizing:border-box; }
+
+  /* ---------- Header ---------- */
+  header{ display:flex; align-items:center; justify-content:space-between; margin-bottom:22px; flex-wrap:wrap; gap:16px; flex-shrink:0; }
+  .brand{ display:flex; align-items:baseline; gap:10px; }
+  .brand-mark{ font-family:var(--font-display); font-size:28px; color:var(--chalk-white); position:relative; }
+  .brand-mark::after{
+    content:''; position:absolute; left:-2px; right:-4px; bottom:-4px; height:6px;
+    background:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='8'%3E%3Cpath d='M2 5 Q 20 2 40 5 T 80 4 T 118 5' stroke='%23E7C948' stroke-width='2.5' fill='none' stroke-linecap='round'/%3E%3C/svg%3E") no-repeat;
+    background-size:100% 100%; opacity:0.9;
+  }
+  .brand-sub{ font-family:var(--font-mono); font-size:11px; letter-spacing:0.14em; text-transform:uppercase; color:var(--chalk-white-dim); opacity:0.6; }
+
+  .mode-switch{ display:flex; gap:6px; background:var(--board-700); border:1px solid var(--line); border-radius:999px; padding:4px; }
+  .mode-btn{
+    font-family:var(--font-body); font-weight:600; font-size:13.5px; letter-spacing:0.01em;
+    padding:9px 20px; border-radius:999px; border:none; cursor:pointer;
+    background:transparent; color:var(--chalk-white-dim); position:relative;
+    transition:color .2s ease, background .2s ease;
+  }
+  .mode-btn .dim{ opacity:0.55; font-weight:500; font-family:var(--font-mono); font-size:10px; margin-left:6px; letter-spacing:.05em; }
+  .mode-btn.active{ background:var(--board-600); color:var(--chalk-white); }
+  .mode-btn.active[data-mode="2d"]{ box-shadow: inset 0 0 0 1px rgba(231,201,72,0.4); }
+  .mode-btn.active[data-mode="3d"]{ box-shadow: inset 0 0 0 1px rgba(127,180,222,0.4); }
+  .mode-btn.active[data-mode="2d"] .dim{ color:var(--chalk-yellow); opacity:0.9; }
+  .mode-btn.active[data-mode="3d"] .dim{ color:var(--chalk-blue); opacity:0.9; }
+
+  /* ---------- Prompt bar ---------- */
+  .prompt-shell{
+    background:var(--board-700); border:1px solid var(--line); border-radius:16px;
+    padding:18px 22px; margin-bottom:16px; flex-shrink:0;
+    display:flex; align-items:center; gap:14px; flex-wrap:wrap;
+  }
+  .prompt-label{ font-family:var(--font-display); font-size:22px; color:var(--chalk-white-dim); white-space:nowrap; }
+  .prompt-input-wrap{ flex:1; min-width:240px; position:relative; }
+  .prompt-input{
+    width:100%; background:transparent; border:none; outline:none;
+    font-family:var(--font-display); font-size:22px; color:var(--chalk-white);
+    padding:6px 2px; border-bottom:2px dashed rgba(242,239,228,0.18);
+  }
+  .prompt-input::placeholder{ color:rgba(242,239,228,0.35); }
+  .send-btn{
+    display:flex; align-items:center; gap:8px;
+    font-family:var(--font-body); font-weight:700; font-size:13.5px;
+    color:var(--board-900); background:var(--chalk-yellow);
+    border:none; border-radius:10px; padding:12px 20px; cursor:pointer;
+    transition:transform .15s ease, box-shadow .15s ease; box-shadow:0 0 0 rgba(231,201,72,0);
+  }
+  body.mode-3d .send-btn{ background:var(--chalk-blue); }
+  .send-btn:hover{ transform:translateY(-1px); box-shadow:0 6px 18px rgba(231,201,72,0.25); }
+  body.mode-3d .send-btn:hover{ box-shadow:0 6px 18px rgba(127,180,222,0.25); }
+  .send-btn:active{ transform:translateY(0px) scale(0.98); }
+  .send-btn svg{ width:15px; height:15px; }
+
+  .quick-chips{ display:flex; gap:8px; flex-wrap:wrap; margin-bottom:16px; flex-shrink:0; }
+  .chip{
+    font-family:var(--font-mono); font-size:12px; color:var(--chalk-white-dim);
+    background:var(--board-700); border:1px solid var(--line); border-radius:8px;
+    padding:7px 12px; cursor:pointer; transition:border-color .15s ease, color .15s ease;
+  }
+  .chip:hover{ color:var(--chalk-white); border-color:var(--chalk-yellow); }
+  body.mode-3d .chip:hover{ border-color:var(--chalk-blue); }
+
+  /* ---------- Main grid ---------- */
+  .grid{ display:grid; grid-template-columns: 1fr 320px; gap:20px; flex:1; min-height:0; }
+  @media (max-width: 880px){ .grid{ grid-template-columns:1fr; } .sidebar{ order:2; } .app{ height:auto; min-height:100vh; } }
+
+  /* ---------- Stage ---------- */
+  .stage{
+    background:
+      linear-gradient(rgba(255,255,255,0.015) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(255,255,255,0.015) 1px, transparent 1px),
+      var(--board-800);
+    background-size:34px 34px;
+    border:1px solid var(--line); border-radius:18px;
+    position:relative; overflow:hidden;
+    height:100%; min-height:0; display:flex; flex-direction:column;
+  }
+  .stage-topbar{
+    display:flex; align-items:center; justify-content:space-between;
+    padding:14px 18px; border-bottom:1px solid var(--line);
+  }
+  .stage-topbar-left{ display:flex; align-items:center; gap:10px; }
+  .engine-dot{ width:8px; height:8px; border-radius:50%; background:var(--chalk-yellow); box-shadow:0 0 8px var(--chalk-yellow); }
+  body.mode-3d .engine-dot{ background:var(--chalk-blue); box-shadow:0 0 8px var(--chalk-blue); }
+  .engine-label{ font-family:var(--font-mono); font-size:11.5px; letter-spacing:0.04em; color:var(--chalk-white-dim); }
+  .stage-topbar-right{ display:flex; gap:8px; }
+  .icon-btn{
+    width:30px; height:30px; border-radius:8px; border:1px solid var(--line); background:var(--board-700);
+    display:flex; align-items:center; justify-content:center; cursor:pointer; color:var(--chalk-white-dim);
+    transition:all .15s ease;
+  }
+  .icon-btn:hover{ color:var(--chalk-white); border-color:var(--chalk-white-dim); }
+  .icon-btn svg{ width:15px; height:15px; }
+
+  .stage-body{ flex:1; min-height:0; position:relative; display:flex; align-items:center; justify-content:center; padding:20px; }
+
+  /* empty state */
+  .empty-state{ text-align:center; max-width:340px; }
+  .empty-state .glyph{ font-size:44px; margin-bottom:14px; opacity:0.7; }
+  .empty-state h3{ font-family:var(--font-display); font-size:24px; margin:0 0 8px; color:var(--chalk-white); }
+  .empty-state p{ font-size:13.5px; line-height:1.6; color:var(--chalk-white-dim); margin:0; }
+
+  /* loading state */
+  .loading-state{ text-align:center; }
+  .chalk-spinner{ width:54px; height:54px; margin:0 auto 18px; position:relative; }
+  .chalk-spinner svg{ width:100%; height:100%; animation:spin 1.4s linear infinite; }
+  @keyframes spin{ to{ transform:rotate(360deg); } }
+  .loading-state p{ font-family:var(--font-mono); font-size:12.5px; color:var(--chalk-white-dim); letter-spacing:0.03em; }
+  .loading-state .sub{ opacity:0.55; margin-top:4px; }
+
+  /* 2D canvas preview */
+  #canvas2d-wrap{ width:100%; height:100%; display:flex; align-items:center; justify-content:center; }
+  #canvas2d{ max-width:100%; max-height:100%; }
+  .playbar{
+    position:absolute; left:20px; right:20px; bottom:20px;
+    background:rgba(16,31,25,0.85); backdrop-filter:blur(6px);
+    border:1px solid var(--line); border-radius:12px; padding:10px 14px;
+    display:flex; align-items:center; gap:12px;
+  }
+  .play-btn{
+    width:32px; height:32px; border-radius:50%; background:var(--chalk-yellow); border:none; cursor:pointer;
+    display:flex; align-items:center; justify-content:center; flex-shrink:0;
+  }
+  .play-btn svg{ width:13px; height:13px; fill:var(--board-900); }
+  .track{ flex:1; height:4px; background:var(--board-600); border-radius:2px; position:relative; overflow:hidden; }
+  .track-fill{ position:absolute; left:0; top:0; bottom:0; width:38%; background:var(--chalk-yellow); border-radius:2px; }
+  .time{ font-family:var(--font-mono); font-size:11px; color:var(--chalk-white-dim); flex-shrink:0; }
+
+  /* 3D canvas preview */
+  #canvas3d-wrap{ width:100%; height:100%; position:absolute; inset:0; cursor:grab; }
+  #canvas3d-wrap:active{ cursor:grabbing; }
+  .orbit-hint{
+    position:absolute; bottom:18px; left:50%; transform:translateX(-50%);
+    font-family:var(--font-mono); font-size:11px; color:var(--chalk-white-dim);
+    background:rgba(16,31,25,0.7); border:1px solid var(--line); padding:6px 14px; border-radius:999px;
+    display:flex; gap:14px; opacity:0.85;
+  }
+  .orbit-hint span{ display:flex; align-items:center; gap:5px; }
+  .zoom-controls{ position:absolute; right:18px; bottom:18px; display:flex; flex-direction:column; gap:6px; }
+
+  /* ---------- Sidebar : chat panel (Copilot/Gemini-in-IDE style) ---------- */
+  .sidebar{ display:flex; flex-direction:column; height:100%; min-height:0; }
+  .chat-sidebar{ height:100%; min-height:0; }
+  .chat-panel{
+    background:var(--board-700); border:1px solid var(--line); border-radius:16px;
+    display:flex; flex-direction:column; height:100%; min-height:0; overflow:hidden;
+  }
+  .chat-panel-header{
+    display:flex; align-items:center; justify-content:space-between;
+    padding:13px 14px; border-bottom:1px solid var(--line); flex-shrink:0;
+  }
+  .chat-title{ font-family:var(--font-body); font-weight:600; font-size:13px; color:var(--chalk-white); }
+  .chat-model-pill{
+    font-family:var(--font-mono); font-size:10.5px; color:var(--chalk-white-dim);
+    background:var(--board-600); border:1px solid var(--line); border-radius:999px; padding:4px 10px;
+  }
+
+  .chat-messages{
+    flex:1; overflow-y:auto; padding:14px; display:flex; flex-direction:column; gap:12px;
+    min-height:0;
+  }
+  .chat-messages::-webkit-scrollbar{ width:6px; }
+  .chat-messages::-webkit-scrollbar-thumb{ background:var(--board-600); border-radius:3px; }
+
+  .chat-msg{ max-width:100%; }
+  .chat-msg-role{
+    font-family:var(--font-mono); font-size:10px; letter-spacing:0.06em; text-transform:uppercase;
+    color:var(--chalk-white-dim); opacity:0.55; margin-bottom:4px;
+  }
+  .chat-msg-body{
+    font-size:13px; line-height:1.55; color:var(--chalk-white-dim); background:var(--board-600);
+    border-radius:10px; padding:9px 11px;
+  }
+  .chat-msg-user .chat-msg-body{
+    background:transparent; border:1px solid var(--line); color:var(--chalk-white);
+  }
+  .chat-msg-user .chat-msg-role{ text-align:right; }
+  .chat-msg-user .chat-msg-body{ text-align:left; }
+
+  .chat-input-area{
+    border-top:1px solid var(--line); padding:10px 10px 10px; flex-shrink:0;
+    background:var(--board-800);
+  }
+  .chat-textarea{
+    width:100%; resize:none; background:transparent; border:none; outline:none;
+    font-family:var(--font-body); font-size:13.5px; color:var(--chalk-white);
+    padding:6px 4px; line-height:1.5;
+  }
+  .chat-textarea::placeholder{ color:rgba(242,239,228,0.35); }
+  .chat-input-row{ display:flex; align-items:center; justify-content:space-between; padding:2px 2px 0; }
+  .chat-engine-tag{
+    font-family:var(--font-mono); font-size:10.5px; color:var(--chalk-white-dim);
+    border:1px solid var(--line); border-radius:6px; padding:4px 9px; opacity:0.85;
+  }
+  body.mode-3d .chat-engine-tag{ color:var(--chalk-blue); border-color:rgba(127,180,222,0.35); }
+  body.mode-2d .chat-engine-tag{ color:var(--chalk-yellow); border-color:rgba(231,201,72,0.35); }
+
+  .chat-send-btn{
+    width:30px; height:30px; border-radius:8px; border:none; cursor:pointer;
+    background:var(--chalk-yellow); color:var(--board-900);
+    display:flex; align-items:center; justify-content:center; flex-shrink:0;
+    transition:transform .15s ease;
+  }
+  body.mode-3d .chat-send-btn{ background:var(--chalk-blue); }
+  .chat-send-btn:hover{ transform:translateY(-1px); }
+  .chat-send-btn svg{ width:14px; height:14px; }
+
+  /* keyboard focus visibility */
+  button:focus-visible, input:focus-visible, .chip:focus-visible, .history-item:focus-visible{
+    outline:2px solid var(--chalk-yellow); outline-offset:2px;
+  }
+  body.mode-3d button:focus-visible{ outline-color:var(--chalk-blue); }
+
+  @media (prefers-reduced-motion: reduce){
+    .chalk-spinner svg{ animation:none; }
+  }
+</style>
+</head>
+<body class="mode-2d">
+<div class="dust-overlay"></div>
+<div class="app">
+
+  <header>
+    <div class="brand">
+      <span class="brand-mark">Chalkline</span>
+      <span class="brand-sub">prompt&nbsp;→&nbsp;proof</span>
+    </div>
+    <div class="mode-switch" role="tablist" aria-label="Preview engine">
+      <button class="mode-btn active" data-mode="2d" id="btn-2d" role="tab" aria-selected="true">2D <span class="dim">MANIM</span></button>
+      <button class="mode-btn" data-mode="3d" id="btn-3d" role="tab" aria-selected="false">3D <span class="dim">THREE.JS</span></button>
+    </div>
+  </header>
+
+  <div class="grid">
+    <div class="stage" id="stage">
+      <div class="stage-topbar">
+        <div class="stage-topbar-left">
+          <div class="engine-dot"></div>
+          <span class="engine-label" id="engine-label">MANIM · 2D RENDER</span>
+        </div>
+        <div class="stage-topbar-right">
+          <div class="icon-btn" title="Download" tabindex="0">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0l-4-4m4 4l4-4M4 20h16"/></svg>
+          </div>
+          <div class="icon-btn" title="Fullscreen" tabindex="0">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 3H5a2 2 0 00-2 2v3m18 0V5a2 2 0 00-2-2h-3m0 18h3a2 2 0 002-2v-3M3 16v3a2 2 0 002 2h3"/></svg>
+          </div>
+        </div>
+      </div>
+
+      <div class="stage-body" id="stage-body">
+        <div class="empty-state" id="empty-state">
+          <div class="glyph">✎</div>
+          <h3>Nothing on the board yet</h3>
+          <p>Type a topic above — like "give parabola" — and Chalkline will sketch it out here for the class to see.</p>
+        </div>
+      </div>
+    </div>
+
+    <div class="sidebar chat-sidebar">
+      <div class="chat-panel">
+        <div class="chat-panel-header">
+          <span class="chat-title">Chalkline chat</span>
+          <span class="chat-model-pill" id="chat-model-pill">gemini-flash</span>
+        </div>
+
+        <div class="chat-messages" id="chat-messages">
+          <div class="chat-msg chat-msg-assistant">
+            <div class="chat-msg-role">chalkline</div>
+            <div class="chat-msg-body">Tell me what to put on the board. Try "give parabola" or "unit circle with sine and cosine".</div>
+          </div>
+        </div>
+
+        <div class="chat-input-area">
+          <textarea class="chat-textarea" id="chat-textarea" rows="2" placeholder="Ask for a topic, or refine the last one…"></textarea>
+          <div class="chat-input-row">
+            <div class="chat-input-left">
+              <span class="chat-engine-tag" id="chat-engine-tag">2D · manim</span>
+            </div>
+            <button class="chat-send-btn" id="chat-send-btn" aria-label="Send">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M5 12h14M13 5l7 7-7 7"/></svg>
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+(function(){
+  const body = document.body;
+  const btn2d = document.getElementById('btn-2d');
+  const btn3d = document.getElementById('btn-3d');
+  const engineLabel = document.getElementById('engine-label');
+  const stageBody = document.getElementById('stage-body');
+  const chatMessages = document.getElementById('chat-messages');
+
+  let currentMode = '2d';
+  let three = null; // lazy three.js scene handle
+
+  function setMode(mode){
+    currentMode = mode;
+    body.classList.toggle('mode-2d', mode === '2d');
+    body.classList.toggle('mode-3d', mode === '3d');
+    btn2d.classList.toggle('active', mode === '2d');
+    btn3d.classList.toggle('active', mode === '3d');
+    btn2d.setAttribute('aria-selected', mode === '2d');
+    btn3d.setAttribute('aria-selected', mode === '3d');
+    engineLabel.textContent = mode === '2d' ? 'MANIM · 2D RENDER' : 'THREE.JS · 3D SCENE';
+    renderEmptyState();
+  }
+
+  function renderEmptyState(){
+    stageBody.innerHTML = `
+      <div class="empty-state" id="empty-state">
+        <div class="glyph">${currentMode === '2d' ? '✎' : '⬡'}</div>
+        <h3>Nothing on the board yet</h3>
+        <p>${currentMode === '2d'
+          ? 'Type a topic above — like “give parabola” — and Chalkline will sketch it out here for the class to see.'
+          : 'Type a topic above and Chalkline will build an interactive 3D scene you can orbit, pan and zoom.'}</p>
+      </div>`;
+  }
+
+  function renderLoading(){
+    stageBody.innerHTML = `
+      <div class="loading-state">
+        <div class="chalk-spinner">
+          <svg viewBox="0 0 50 50">
+            <circle cx="25" cy="25" r="20" fill="none" stroke="${currentMode==='2d' ? '#E7C948' : '#7FB4DE'}" stroke-width="3"
+              stroke-linecap="round" stroke-dasharray="90 40" opacity="0.85"/>
+          </svg>
+        </div>
+        <p>${currentMode === '2d' ? 'Sketching the animation…' : 'Building the 3D scene…'}</p>
+        <p class="sub">sending prompt to model</p>
+      </div>`;
+  }
+
+  function niceTopicLabel(raw){
+    const t = raw.trim();
+    if(!t) return currentMode === '2d' ? 'Parabola y = x²' : 'Paraboloid surface';
+    return t.charAt(0).toUpperCase() + t.slice(1);
+  }
+
+  function renderResult2D(label){
+    stageBody.innerHTML = `
+      <div id="canvas2d-wrap"><canvas id="canvas2d" width="640" height="380"></canvas></div>
+      <div class="playbar">
+        <button class="play-btn" id="play-btn" aria-label="Play preview">
+          <svg viewBox="0 0 24 24"><path d="M6 4l14 8-14 8V4z"/></svg>
+        </button>
+        <div class="track"><div class="track-fill"></div></div>
+        <span class="time">00:04 / 00:12</span>
+      </div>`;
+    drawChalkGraph(document.getElementById('canvas2d'));
+  }
+
+  function renderResult2DFromJob(data){
+    // data: { video_url, duration_seconds, status, job_id }
+    if(data.video_url){
+      stageBody.innerHTML = `
+        <video id="manim-video" src="${data.video_url}" style="max-width:100%; max-height:100%; border-radius:8px;" controls autoplay loop></video>`;
+    } else {
+      // fallback while status is 'rendering' or if backend hasn't produced a file yet
+      stageBody.innerHTML = `
+        <div id="canvas2d-wrap"><canvas id="canvas2d" width="640" height="380"></canvas></div>
+        <div class="playbar">
+          <button class="play-btn" id="play-btn" aria-label="Play preview">
+            <svg viewBox="0 0 24 24"><path d="M6 4l14 8-14 8V4z"/></svg>
+          </button>
+          <div class="track"><div class="track-fill"></div></div>
+          <span class="time">preview unavailable — showing placeholder</span>
+        </div>`;
+      drawChalkGraph(document.getElementById('canvas2d'));
+    }
+  }
+
+  function drawChalkGraph(canvas){
+    const ctx = canvas.getContext('2d');
+    const w = canvas.width, h = canvas.height;
+    ctx.clearRect(0,0,w,h);
+    // axes
+    ctx.strokeStyle = 'rgba(242,239,228,0.35)';
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.moveTo(40, h/2); ctx.lineTo(w-30, h/2);
+    ctx.moveTo(w/2, 20); ctx.lineTo(w/2, h-30);
+    ctx.stroke();
+    // parabola curve, chalky stroke
+    ctx.strokeStyle = '#E7C948';
+    ctx.lineWidth = 3;
+    ctx.lineCap = 'round';
+    ctx.beginPath();
+    const scale = 0.012;
+    for(let px=40; px<=w-30; px++){
+      const x = px - w/2;
+      const y = h/2 - (x*x*scale);
+      if(px===40) ctx.moveTo(px,y); else ctx.lineTo(px,y);
+    }
+    ctx.stroke();
+    ctx.fillStyle = 'rgba(242,239,228,0.55)';
+    ctx.font = '13px IBM Plex Mono, monospace';
+    ctx.fillText('y = x²', w-90, 40);
+  }
+
+  function renderResult3DFromScene(data){
+    // data: { scene_spec, status, job_id } — scene_spec is JSON describing objects,
+    // produced by the shared scene-spec service and turned into geometry here.
+    stageBody.innerHTML = `
+      <div id="canvas3d-wrap"></div>
+      <div class="orbit-hint">
+        <span>🖱 drag to orbit</span><span>⚲ scroll to zoom</span><span>⇧ + drag to pan</span>
+      </div>`;
+    initThree(document.getElementById('canvas3d-wrap'), data.scene_spec || null);
+  }
+
+  function initThree(container, sceneSpec){
+    if(typeof THREE === 'undefined'){
+      container.innerHTML = '<p style="color:#C9C6BA;font-family:IBM Plex Mono,monospace;font-size:12px;">Three.js failed to load.</p>';
+      return;
+    }
+    const w = container.clientWidth, h = container.clientHeight;
+    const scene = new THREE.Scene();
+    const camera = new THREE.PerspectiveCamera(45, w/h, 0.1, 100);
+    camera.position.set(4.5, 3.2, 5.5);
+
+    const renderer = new THREE.WebGLRenderer({ antialias:true, alpha:true });
+    renderer.setSize(w, h);
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    container.innerHTML = '';
+    container.appendChild(renderer.domElement);
+
+    // grid
+    const grid = new THREE.GridHelper(10, 20, 0x3A4A40, 0x28382F);
+    scene.add(grid);
+
+    // paraboloid surface (mock 3D visual)
+    const geo = new THREE.ParametricBufferGeometry ? null : null;
+    const segs = 40, size = 3;
+    const positions = [];
+    const indices = [];
+    for(let i=0;i<=segs;i++){
+      for(let j=0;j<=segs;j++){
+        const x = (i/segs - 0.5) * size * 2;
+        const z = (j/segs - 0.5) * size * 2;
+        const y = (x*x + z*z) * 0.28;
+        positions.push(x, y, z);
+      }
+    }
+    for(let i=0;i<segs;i++){
+      for(let j=0;j<segs;j++){
+        const a = i*(segs+1)+j, b = a+1, c = a+(segs+1), d = c+1;
+        indices.push(a,c,b, b,c,d);
+      }
+    }
+    const bufferGeo = new THREE.BufferGeometry();
+    bufferGeo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+    bufferGeo.setIndex(indices);
+    bufferGeo.computeVertexNormals();
+    const mat = new THREE.MeshStandardMaterial({ color: 0x7FB4DE, wireframe:false, opacity:0.85, transparent:true, side: THREE.DoubleSide });
+    const mesh = new THREE.Mesh(bufferGeo, mat);
+    scene.add(mesh);
+
+    const wireMat = new THREE.MeshBasicMaterial({ color: 0xF2EFE4, wireframe:true, opacity:0.12, transparent:true });
+    const wireMesh = new THREE.Mesh(bufferGeo, wireMat);
+    scene.add(wireMesh);
+
+    scene.add(new THREE.AmbientLight(0xffffff, 0.6));
+    const dl = new THREE.DirectionalLight(0xffffff, 0.8);
+    dl.position.set(5,8,4);
+    scene.add(dl);
+
+    // manual orbit controls (drag rotate, wheel zoom, shift+drag pan)
+    let isDown=false, lastX=0, lastY=0, theta=0.7, phi=1.0, radius=7.5;
+    let panX=0, panY=0;
+    function updateCamera(){
+      const px = radius * Math.sin(phi) * Math.sin(theta);
+      const py = radius * Math.cos(phi);
+      const pz = radius * Math.sin(phi) * Math.cos(theta);
+      camera.position.set(px+panX, py+panY, pz);
+      camera.lookAt(panX, panY, 0);
+    }
+    updateCamera();
+
+    renderer.domElement.addEventListener('mousedown', (e)=>{ isDown=true; lastX=e.clientX; lastY=e.clientY; });
+    window.addEventListener('mouseup', ()=> isDown=false);
+    window.addEventListener('mousemove', (e)=>{
+      if(!isDown) return;
+      const dx = e.clientX-lastX, dy = e.clientY-lastY;
+      lastX=e.clientX; lastY=e.clientY;
+      if(e.shiftKey){ panX -= dx*0.01; panY += dy*0.01; }
+      else{ theta -= dx*0.006; phi = Math.min(Math.max(phi - dy*0.006, 0.2), Math.PI-0.2); }
+      updateCamera();
+    });
+    renderer.domElement.addEventListener('wheel', (e)=>{
+      e.preventDefault();
+      radius = Math.min(Math.max(radius + e.deltaY*0.01, 3), 16);
+      updateCamera();
+    }, { passive:false });
+
+    let raf;
+    function animate(){
+      raf = requestAnimationFrame(animate);
+      mesh.rotation.y += 0.0015;
+      wireMesh.rotation.y = mesh.rotation.y;
+      renderer.render(scene, camera);
+    }
+    animate();
+
+    function onResize(){
+      const nw = container.clientWidth, nh = container.clientHeight;
+      if(nw===0||nh===0) return;
+      camera.aspect = nw/nh; camera.updateProjectionMatrix();
+      renderer.setSize(nw, nh);
+    }
+    window.addEventListener('resize', onResize);
+  }
+
+  const chatTextarea = document.getElementById('chat-textarea');
+  const chatSendBtn = document.getElementById('chat-send-btn');
+  const chatEngineTag = document.getElementById('chat-engine-tag');
+
+  const API_BASE = window.CHALKLINE_API_BASE || 'http://localhost:8000';
+
+  function addChatMessage(role, text){
+    const wrap = document.createElement('div');
+    wrap.className = 'chat-msg ' + (role === 'user' ? 'chat-msg-user' : 'chat-msg-assistant');
+    wrap.innerHTML = `<div class="chat-msg-role">${role === 'user' ? 'you' : 'chalkline'}</div><div class="chat-msg-body"></div>`;
+    wrap.querySelector('.chat-msg-body').textContent = text;
+    chatMessages.appendChild(wrap);
+    chatMessages.scrollTop = chatMessages.scrollHeight;
+    return wrap;
+  }
+
+  function syncChatEngineTag(){
+    chatEngineTag.textContent = currentMode === '2d' ? '2D · manim' : '3D · three.js';
+  }
+
+  async function generate(){
+    const rawText = chatTextarea.value;
+    if(!rawText.trim()) return;
+    const label = niceTopicLabel(rawText);
+
+    addChatMessage('user', rawText.trim());
+    chatTextarea.value = '';
+    renderLoading();
+
+    try{
+      const res = await fetch(`${API_BASE}/api/generate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ prompt: rawText.trim(), mode: currentMode })
+      });
+      if(!res.ok) throw new Error(`Server responded ${res.status}`);
+      const data = await res.json();
+
+      if(currentMode === '2d'){
+        renderResult2DFromJob(data);
+      } else {
+        renderResult3DFromScene(data);
+      }
+      addChatMessage('assistant', `Done. "${label}" is on the board — let me know if you'd like a variation.`);
+    } catch(err){
+      renderEmptyState();
+      addChatMessage('assistant', `Couldn't reach the render backend (${err.message}). Is the API running at ${API_BASE}?`);
+    }
+  }
+
+  btn2d.addEventListener('click', ()=>{ setMode('2d'); syncChatEngineTag(); });
+  btn3d.addEventListener('click', ()=>{ setMode('3d'); syncChatEngineTag(); });
+
+  chatSendBtn.addEventListener('click', generate);
+  chatTextarea.addEventListener('keydown', (e)=>{
+    if(e.key === 'Enter' && !e.shiftKey){ e.preventDefault(); generate(); }
+  });
+
+  syncChatEngineTag();
+  renderEmptyState();
+})();
+</script>
+</body>
+</html>
